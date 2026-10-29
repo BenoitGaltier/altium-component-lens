@@ -124,7 +124,17 @@ function renderResults() {
   const result = state.result;
   $('demo-banner').hidden = !result?.demo;
   $('partial-banner').hidden = result?.completeness !== 'partial';
-  $('partial-banner').textContent = result?.completeness === 'partial' ? t('partialNotice', { count: number(result.summary.detailFailures) }) : '';
+  $('partial-banner').textContent = result?.completeness === 'partial' ? t('partialNotice') : '';
+  const inventories = (result?.inventories || []).filter(i => i.warnings.length || i.repeatedRows);
+  $('inventory-panel').hidden = !inventories.length;
+  $('inventory-content').replaceChildren();
+  for (const inventory of inventories) {
+    const row = el('article', 'inventory-diagnostic'); row.append(el('strong', '', inventory.workspaceName));
+    row.append(el('p', '', t('inventoryCounts', { distinct: number(inventory.distinctComponents), rows: number(inventory.rowsRead), totals: inventory.reportedTotals.map(number).join(' → '), pages: number(inventory.pages) })));
+    if (inventory.repeatedRows) row.append(el('p', '', t('repeatedRows', { count: number(inventory.repeatedRows) })));
+    for (const warning of inventory.warnings) row.append(el('p', 'detail-warning', t(warning)));
+    $('inventory-content').append(row);
+  }
   $('metric-cross').textContent = result ? number(result.summary.crossGroups) : '—';
   $('metric-a').textContent = result ? number(result.summary.componentsA) : state.a ? number(state.a.componentCount) : '—';
   $('metric-b').textContent = result ? number(result.summary.componentsB) : state.b ? number(state.b.componentCount) : '—';

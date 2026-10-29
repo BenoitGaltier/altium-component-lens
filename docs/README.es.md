@@ -24,7 +24,9 @@ Las categorías proceden de Altium y usan su ruta completa. Un grupo sigue visib
 
 **Entre A y B** muestra identidades compartidas. **Dentro de A** y **Dentro de B** muestran identidades utilizadas por varios componentes del mismo workspace, incluidas las compartidas con el otro. **Todos** reúne estos grupos. Los contadores resumen todo el análisis; la tabla y las exportaciones siguen los filtros.
 
-Las identidades ausentes o no utilizables se indican como incidencias. Si falla la lectura de parámetros, el informe es **PARCIAL** y puede omitir duplicados. Los fallos de inventario o autenticación impiden generar el informe. La cobertura depende de los permisos del token; no hay un único instante de captura para ambas bibliotecas. Evita modificarlas durante el análisis.
+Las identidades ausentes o no utilizables se indican como incidencias. Si falla la lectura de parámetros, el informe es **PARCIAL** y puede omitir duplicados. Los fallos de red, autenticación o cursores impiden generar el informe. La cobertura depende de los permisos del token; no hay un único instante de captura para ambas bibliotecas. Evita modificarlas durante el análisis.
+
+Desde la versión 1.0.1, la paginación sigue los cursores hasta la última página. Las filas repetidas se deduplican por identificador de componente. Un total de API distinto o cambiante genera un informe **PARCIAL** con todos los componentes leídos, sin bloquear la comparación. El diagnóstico muestra filas, componentes distintos, repeticiones, páginas y totales anunciados; la exportación JSON conserva estos datos. Un componente repetido con valores distintos también hace que el informe sea parcial. Los cursores ausentes, repetidos o una paginación sin progreso siguen deteniendo el análisis.
 
 Los tokens solo permanecen en memoria y no se guardan en exportaciones, registros ni almacenamiento del navegador. Cierra el ejecutable para descartarlos. La aplicación escucha únicamente en `127.0.0.1` y no modifica datos de Altium. Solo se recuerdan los nombres, URL de los workspaces y el idioma.
 

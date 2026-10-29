@@ -8,7 +8,7 @@ A portable, read-only Windows app for finding duplicate components across two Al
 
 ## Run without installing anything
 
-Download `ComponentLens-1.0.0-win-x64.zip` from this repository's Releases, extract it, then double-click **ComponentLens.exe**. The executable includes its .NET runtime and opens your default browser. Keep its console window open while using the app. Choose **Quit** or close the console to stop it.
+Download `ComponentLens-1.0.1-win-x64.zip` from this repository's Releases, extract it, then double-click **ComponentLens.exe**. The executable includes its .NET runtime and opens your default browser. Keep its console window open while using the app. Choose **Quit** or close the console to stop it.
 
 Requires Windows 10/11 x64, a modern browser, network access to Altium 365, and an API access token with library/component read access for each workspace. No Altium Designer, Node.js or .NET installation is needed. The embedded runtime may unpack native files into the user's temporary directory on first launch. The release is unsigned.
 
@@ -35,7 +35,9 @@ Categories come from `desLibrary.componentTypes` and each component's `component
 
 The scan reads the entire visible library. Category and text filters apply afterwards. A group stays visible if **any occurrence** belongs to a selected category (including descendants). This preserves duplicates that have been categorized differently in A and B. Use the two category entries if equivalent categories have different paths/names across workspaces. Summary cards describe the full scan; the table count and exports reflect the active filters.
 
-Components without a usable manufacturer/MPN pair are explicitly listed as data issues and excluded from comparison. Empty values and placeholders such as `N/A`, `Unknown` or `-` are not identities. A parameter-read failure marks the entire report **PARTIAL**; known Part Choices are retained but matches may be missing. Inventory/pagination/authentication failures stop the scan rather than produce an empty success report. Rate limiting and transient HTTP 502/503/504 errors are retried up to four times, with cancellation support.
+Components without a usable manufacturer/MPN pair are explicitly listed as data issues and excluded from comparison. Empty values and placeholders such as `N/A`, `Unknown` or `-` are not identities. A parameter-read failure marks the entire report **PARTIAL**; known Part Choices are retained but matches may be missing. Network, authentication or broken-cursor failures stop the scan rather than produce an empty success report. Rate limiting and transient HTTP 502/503/504 errors are retried up to four times, with cancellation support.
+
+Pagination follows `hasNextPage` / `endCursor` until the API ends the connection, rather than treating `totalCount` as a hard limit. Overlapping rows are deduplicated by component ID before reading parameters and comparing components. If the distinct count matches a stable API total, harmless repeated rows are reported without inventing duplicates. A different/changing total or conflicting repeated-component data produces a **PARTIAL** report with all retrieved components. The **Inventory diagnostics** panel shows rows, distinct components, repeated rows, pages and advertised totals; JSON exports retain this evidence. Missing/repeated cursors or intermediate pages that add no components still stop the scan with a specific error.
 
 Results cover only data visible to each token. The API does not provide an atomic snapshot across both workspaces: avoid library edits during a scan. There is no deletion, merging or modification of Altium data.
 
@@ -70,5 +72,6 @@ GitHub Actions runs tests on pushes/PRs. A `v*` tag tests and builds the portabl
 - [Altium 365 API: endpoints and Bearer authentication](https://www.altium.com/documentation/altium-developer-center/altium-365/api)
 - [Library Management API reference](https://docs.developer.altium.com/platform-api-docs/reference/library-management/overview/)
 - [Official library schema](https://docs.developer.altium.com/platform-api-docs/reference/library-management/schema.graphql)
+- [Cursor pagination](https://docs.developer.altium.com/platform-api-docs/guides/pagination/)
 
 The implementation uses only GraphQL `query` operations: `desLibrary`, `componentTypes`, `components` and `desComponentById`. The schema was checked on 29 October 2026. The app is an independent tool and is not an Altium product.

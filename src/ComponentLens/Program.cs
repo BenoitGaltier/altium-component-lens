@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 
 if (args.Contains("--help"))
 {
-    Console.WriteLine("Component Lens 1.0.0\nUsage: ComponentLens.exe [--headless] [--port 0-65535]\nDefault: random loopback port, opens your default browser. Close this window or use Quit in the app to stop.");
+    Console.WriteLine("Component Lens 1.0.1\nUsage: ComponentLens.exe [--headless] [--port 0-65535]\nDefault: random loopback port, opens your default browser. Close this window or use Quit in the app to stop.");
     return;
 }
 var port = 0;
@@ -82,7 +82,7 @@ foreach (var (path, asset) in assets)
 await app.StartAsync();
 var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
 var launchUrl = address + "/#session=" + sessionKey;
-Console.WriteLine("\n  COMPONENT LENS  1.0.0\n  Portable Altium 365 duplicate finder\n");
+Console.WriteLine("\n  COMPONENT LENS  1.0.1\n  Portable Altium 365 duplicate finder\n");
 Console.WriteLine("  Open: " + launchUrl);
 Console.WriteLine("\n  Keep this window open. Close it, press Ctrl+C, or choose Quit in the app to stop.\n  Tokens remain in memory for this session.\n");
 if (!args.Contains("--headless"))

@@ -21,9 +21,12 @@ public sealed record QualityIssue(string Workspace, string WorkspaceName, string
     Category? Category, string Reason);
 public sealed record ScanSummary(int ComponentsA, int ComponentsB, int ComparedA, int ComparedB,
     int CrossGroups, int InternalGroupsA, int InternalGroupsB, int MissingIdentity, int DetailFailures);
+public sealed record InventoryDiagnostics(string Workspace, string WorkspaceName, int Pages, int RowsRead,
+    int DistinctComponents, int RepeatedRows, IReadOnlyList<int> ReportedTotals, IReadOnlyList<string> Warnings);
 public sealed record ScanResult(string Version, bool Demo, string Completeness, DateTimeOffset CreatedAt,
     bool IgnoreCase, WorkspaceInfo A, WorkspaceInfo B, ScanSummary Summary,
-    IReadOnlyList<DuplicateGroup> Groups, IReadOnlyList<QualityIssue> Issues);
+    IReadOnlyList<DuplicateGroup> Groups, IReadOnlyList<QualityIssue> Issues,
+    IReadOnlyList<InventoryDiagnostics>? Inventories = null);
 public sealed record ScanProgress(string Workspace, string Phase, int Loaded, int Total);
 public sealed class LensException(string code, string? detail = null, int status = 400) : Exception(detail ?? code)
 {

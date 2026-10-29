@@ -111,16 +111,84 @@ AsyncTest("All component pages and all per-component parameters are read", async
 });
 AsyncTest("Repeated pagination cursor is rejected", async () => {
     var client = Client((req, ct) => Task.FromResult(Json(componentsPage1)));
-    await Code("apiPagination", () => client.Load(WC("a"), _ => {}, default));
+    await Code("apiCursorRepeated", () => client.Load(WC("a"), _ => {}, default));
 });
-AsyncTest("Truncated inventory is rejected even when hasNextPage is false", async () => {
-    var client = Client((req, ct) => Task.FromResult(Json(componentsPage2)));
-    await Code("apiPagination", () => client.Load(WC("a"), _ => {}, default));
+AsyncTest("An early API end produces an explicit partial report with retrieved components", async () => {
+    InventoryDiagnostics? inventory = null;
+    var client = Client((req, ct) => {
+        using var body = Request(req);
+        return Task.FromResult(Json(body.RootElement.GetProperty("query").GetString()!.Contains("LensComponents(") ? componentsPage2 : details.Replace("\"id\":\"c1\"", "\"id\":\"c2\"")));
+    });
+    var loaded = await client.Load(WC("a"), _ => {}, default, value => inventory = value);
+    Assert(loaded.Count == 1 && inventory!.Warnings.Contains("reportedCountMismatch"));
+    var result = DuplicateDetector.Compare(W("a"), loaded, W("b"), [], true, inventories: [inventory!]);
+    Assert(result.Completeness == "partial" && result.Inventories![0].DistinctComponents == 1);
 });
-AsyncTest("A changing inventory total is rejected", async () => {
+AsyncTest("A changing total does not stop cursor traversal and marks the report partial", async () => {
     var pages = 0;
-    var client = Client((req, ct) => Task.FromResult(Json(++pages == 1 ? componentsPage1 : componentsPage2.Replace("\"totalCount\":2", "\"totalCount\":3"))));
-    await Code("apiPagination", () => client.Load(WC("a"), _ => {}, default));
+    InventoryDiagnostics? inventory = null;
+    var client = Client((req, ct) => {
+        using var body = Request(req);
+        if (body.RootElement.GetProperty("query").GetString()!.Contains("LensComponents("))
+            return Task.FromResult(Json(++pages == 1 ? componentsPage1 : componentsPage2.Replace("\"totalCount\":2", "\"totalCount\":3")));
+        return Task.FromResult(Json(details.Replace("\"id\":\"c1\"", "\"id\":\"" + body.RootElement.GetProperty("variables").GetProperty("id").GetString() + "\"")));
+    });
+    var loaded = await client.Load(WC("a"), _ => {}, default, value => inventory = value);
+    Assert(pages == 2 && loaded.Count == 2 && inventory!.ReportedTotals.SequenceEqual(new[] { 2, 3 }));
+    Assert(inventory!.Warnings.Contains("reportedTotalChanged"));
+    Assert(DuplicateDetector.Compare(W("a"), loaded, W("b"), [], true, inventories: [inventory]).Completeness == "partial");
+});
+AsyncTest("A next-page flag without a cursor reports a specific error", async () => {
+    var client = Client((req, ct) => Task.FromResult(Json(componentsPage1.Replace("\"endCursor\":\"page-1\"", "\"endCursor\":null"))));
+    await Code("apiCursorMissing", () => client.Load(WC("a"), _ => {}, default));
+});
+AsyncTest("An intermediate page without new components cannot loop forever", async () => {
+    var pages = 0;
+    var client = Client((req, ct) => Task.FromResult(Json(componentsPage1.Replace("page-1", "page-" + ++pages))));
+    await Code("apiPaginationStalled", () => client.Load(WC("a"), _ => {}, default));
+});
+AsyncTest("A repeated component with changed part choices is retained and reported as partial", async () => {
+    var pages = 0;
+    InventoryDiagnostics? inventory = null;
+    var client = Client((req, ct) => {
+        using var body = Request(req);
+        if (!body.RootElement.GetProperty("query").GetString()!.Contains("LensComponents(")) return Task.FromResult(Json(details));
+        return Task.FromResult(Json(++pages == 1 ? componentsPage1.Replace("\"totalCount\":2", "\"totalCount\":1") :
+            componentsPage1.Replace("\"totalCount\":2", "\"totalCount\":1").Replace("\"hasNextPage\":true", "\"hasNextPage\":false").Replace("RC-100", "RC-200")));
+    });
+    var loaded = await client.Load(WC("a"), _ => {}, default, value => inventory = value);
+    Assert(loaded.Count == 1 && loaded[0].PartChoices[0].Mpn == "RC-200" && inventory!.Warnings.Contains("componentChanged"));
+});
+foreach (var overlappingRows in new[] { true, false })
+AsyncTest(overlappingRows ? "Regression: 1323 rows for 1321 components deduplicate without false duplicates" : "Regression: 1323 distinct components with API total 1321 remain available in a partial report", async () => {
+    const int announced = 1321;
+    var actual = overlappingRows ? 1321 : 1323;
+    var detailReads = 0;
+    InventoryDiagnostics? inventory = null;
+    var client = Client((req, ct) => {
+        using var body = Request(req); var variables = body.RootElement.GetProperty("variables");
+        if (!body.RootElement.GetProperty("query").GetString()!.Contains("LensComponents(")) {
+            Interlocked.Increment(ref detailReads);
+            return Task.FromResult(Json(details.Replace("\"id\":\"c1\"", "\"id\":\"" + variables.GetProperty("id").GetString() + "\"")));
+        }
+        var after = variables.GetProperty("after");
+        var offset = after.ValueKind == JsonValueKind.Null ? 0 : int.Parse(after.GetString()!);
+        var next = Math.Min(offset + AltiumClient.PageSize, actual);
+        var indices = Enumerable.Range(offset, next - offset).ToList();
+        if (overlappingRows && next == actual) indices.AddRange([0, 1]);
+        var nodes = indices.Select(i => new { id = "c" + i, name = "CMP-" + i, revisionId = "01", description = "", folder = (object?)null,
+            componentType = (object?)null, manufacturerParts = new[] { new { companyName = "Yageo", partNumber = "RC-" + i } } }).ToArray();
+        return Task.FromResult(Json(JsonSerializer.Serialize(new { data = new { desLibrary = new { components = new {
+            totalCount = announced, nodes, pageInfo = new { hasNextPage = next < actual, endCursor = next.ToString() }
+        } } } })));
+    });
+    var loaded = await client.Load(WC("a"), _ => {}, default, value => inventory = value);
+    Assert(loaded.Count == actual && detailReads == actual);
+    Assert(inventory!.RowsRead == 1323 && inventory.Pages == 14 && inventory.RepeatedRows == (overlappingRows ? 2 : 0));
+    var result = DuplicateDetector.Compare(W("a"), loaded, W("b"), [], true, inventories: [inventory]);
+    Assert(result.Completeness == (overlappingRows ? "complete" : "partial"));
+    // Part choices remain distinct; only the mocked identical parameter identity forms a group.
+    Assert(result.Groups.All(g => g.A.Select(o => o.Id).Distinct().Count() == g.A.Count));
 });
 AsyncTest("Token expiry during detail reads stops the whole scan", async () => {
     var client = Client((req, ct) => {

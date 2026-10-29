@@ -1,4 +1,4 @@
-COMPONENT LENS 1.0.0 — Portable for Windows x64
+COMPONENT LENS 1.0.1 — Portable for Windows x64
 
 FR : Décompressez le ZIP, puis lancez ComponentLens.exe. Le navigateur s'ouvre.
 Gardez la console ouverte. Connectez les deux workspaces avec leurs URL et tokens

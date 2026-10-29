@@ -120,38 +120,61 @@ public sealed class AltiumClient(HttpClient http)
         return new(new(slot, name, endpoint.AbsoluteUri, count, categories.DistinctBy(x => x.Id).OrderBy(x => x.Path).ToArray()), token);
     }
 
-    public async Task<IReadOnlyList<Component>> Load(WorkspaceConnection workspace, Action<ScanProgress> progress, CancellationToken ct)
+    public async Task<IReadOnlyList<Component>> Load(WorkspaceConnection workspace, Action<ScanProgress> progress, CancellationToken ct,
+        Action<InventoryDiagnostics>? inventoryReport = null)
     {
-        var components = new List<Component>();
+        var byId = new Dictionary<string, Component>(StringComparer.Ordinal);
         var seen = new HashSet<string>();
         string? after = null;
         var endpoint = new Uri(workspace.Info.Endpoint);
-        var total = -1;
+        var reportedTotals = new List<int>();
+        var changedComponents = new HashSet<string>(StringComparer.Ordinal);
+        int pages = 0, rowsRead = 0;
         do
         {
             var data = await Query(endpoint, workspace.Token, ComponentsQuery,
                 new { first = PageSize, after, workspace = Origin(endpoint) }, ct);
             var connection = Required(Required(data, "desLibrary"), "components");
             var pageTotal = connection.GetProperty("totalCount").GetInt32();
-            if (total >= 0 && total != pageTotal) throw new LensException("apiPagination");
-            total = pageTotal;
+            if (pageTotal < 0) throw new LensException("apiFormat");
+            pages++;
+            reportedTotals.Add(pageTotal);
+            var previousCount = byId.Count;
             foreach (var node in Nodes(connection))
             {
-                components.Add(new(Text(node, "id"), Text(node, "name"), Text(node, "revisionId"), Text(node, "description"),
+                var id = Text(node, "id");
+                if (string.IsNullOrWhiteSpace(id)) throw new LensException("apiFormat");
+                rowsRead++;
+                // A row repeated across API pages is the same component, not a library duplicate.
+                var component = new Component(id, Text(node, "name"), Text(node, "revisionId"), Text(node, "description"),
                     node.TryGetProperty("componentType", out var category) ? ParseCategory(category) : null,
                     node.TryGetProperty("folder", out var folder) ? Text(folder, "path") : "", [], [],
-                    Required(node, "manufacturerParts").EnumerateArray().Select(p => new PartChoice(Text(p, "companyName"), Text(p, "partNumber"))).ToArray()));
+                    Required(node, "manufacturerParts").EnumerateArray().Select(p => new PartChoice(Text(p, "companyName"), Text(p, "partNumber"))).ToArray());
+                if (byId.TryGetValue(id, out var previous) && (previous.Name != component.Name || previous.Revision != component.Revision ||
+                    previous.Description != component.Description || previous.Category != component.Category || previous.Folder != component.Folder ||
+                    !previous.PartChoices.SequenceEqual(component.PartChoices))) changedComponents.Add(id);
+                byId[id] = component;
             }
-            progress(new(workspace.Info.Slot, "listing", components.Count, total));
+            progress(new(workspace.Info.Slot, "listing", byId.Count, pageTotal));
             after = NextCursor(connection, seen);
+            if (after is not null && byId.Count == previousCount) throw new LensException("apiPaginationStalled");
         } while (after is not null);
-        if (components.Count != components.DistinctBy(x => x.Id).Count()) throw new LensException("apiPagination");
-        if (components.Count != total) throw new LensException("apiPagination");
 
-        var hydrated = new Component[components.Count];
+        // Cursor termination defines the traversal. totalCount is retained as coverage evidence,
+        // never used to discard already-read data or to invent an extra page/cursor.
+        var totals = reportedTotals.Distinct().ToArray();
+        var warnings = new List<string>();
+        if (totals.Length > 1) warnings.Add("reportedTotalChanged");
+        if (totals.Any(total => total != byId.Count)) warnings.Add("reportedCountMismatch");
+        if (changedComponents.Count > 0) warnings.Add("componentChanged");
+        inventoryReport?.Invoke(new(workspace.Info.Slot, workspace.Info.Name, pages, rowsRead,
+            byId.Count, rowsRead - byId.Count, totals, warnings));
+        var components = byId.Values.ToArray();
+
+        var hydrated = new Component[components.Length];
         var completed = 0;
         // Small bounded concurrency avoids overwhelming workspace throttling.
-        await Parallel.ForEachAsync(Enumerable.Range(0, components.Count), new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, async (i, token) =>
+        await Parallel.ForEachAsync(Enumerable.Range(0, components.Length), new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, async (i, token) =>
         {
             var component = components[i];
             try
@@ -163,7 +186,7 @@ public sealed class AltiumClient(HttpClient http)
                 hydrated[i] = component with { Parameters = Parameters(details, "parameters"), ItemParameters = Parameters(details, "itemParameters") };
             }
             catch (LensException ex) when (ex.Code != "apiAuth") { hydrated[i] = component with { DetailError = ex.Code }; }
-            progress(new(workspace.Info.Slot, "details", Interlocked.Increment(ref completed), components.Count));
+            progress(new(workspace.Info.Slot, "details", Interlocked.Increment(ref completed), components.Length));
         });
         return hydrated;
     }
@@ -187,7 +210,8 @@ public sealed class AltiumClient(HttpClient http)
         var pageInfo = Required(connection, "pageInfo");
         if (!pageInfo.GetProperty("hasNextPage").GetBoolean()) return null;
         var cursor = Text(pageInfo, "endCursor");
-        if (string.IsNullOrWhiteSpace(cursor) || !seen.Add(cursor)) throw new LensException("apiPagination");
+        if (string.IsNullOrWhiteSpace(cursor)) throw new LensException("apiCursorMissing");
+        if (!seen.Add(cursor)) throw new LensException("apiCursorRepeated");
         return cursor;
     }
 }

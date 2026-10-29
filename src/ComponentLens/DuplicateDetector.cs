@@ -55,7 +55,8 @@ public static partial class DuplicateDetector
     }
 
     public static ScanResult Compare(WorkspaceInfo a, IReadOnlyList<Component> componentsA,
-        WorkspaceInfo b, IReadOnlyList<Component> componentsB, bool ignoreCase, bool demo = false)
+        WorkspaceInfo b, IReadOnlyList<Component> componentsB, bool ignoreCase, bool demo = false,
+        IReadOnlyList<InventoryDiagnostics>? inventories = null)
     {
         var index = new Dictionary<(string, string), (List<Occurrence> A, List<Occurrence> B)>();
         var issues = new List<QualityIssue>();
@@ -87,9 +88,10 @@ public static partial class DuplicateDetector
                 x.Value.A.Count > 0 && x.Value.B.Count > 0 ? "cross" : x.Value.A.Count > 1 ? "a" : "b",
                 x.Value.A.OrderBy(o => o.Name, StringComparer.Ordinal).ToArray(), x.Value.B.OrderBy(o => o.Name, StringComparer.Ordinal).ToArray())).ToArray();
         var failures = issues.Count(x => x.Reason == "detailFailed");
-        return new("1.0.0", demo, failures > 0 ? "partial" : "complete", DateTimeOffset.UtcNow, ignoreCase, a, b,
+        var coverage = inventories ?? [];
+        return new("1.0.1", demo, failures > 0 || coverage.Any(i => i.Warnings.Count > 0) ? "partial" : "complete", DateTimeOffset.UtcNow, ignoreCase, a, b,
             new(componentsA.Count, componentsB.Count, comparedA, comparedB,
                 groups.Count(x => x.Scope == "cross"), groups.Count(x => x.A.Count > 1), groups.Count(x => x.B.Count > 1),
-                issues.Count(x => x.Reason == "missingIdentity"), failures), groups, issues);
+                issues.Count(x => x.Reason == "missingIdentity"), failures), groups, issues, coverage);
     }
 }

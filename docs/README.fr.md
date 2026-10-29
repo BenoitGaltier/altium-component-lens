@@ -24,7 +24,9 @@ Les filtres utilisent les catégories réelles Altium et leurs chemins complets.
 
 L'onglet **Entre A et B** présente les doublons communs. **Dans A** et **Dans B** présentent les doublons internes, y compris ceux également présents dans l'autre workspace. **Tous** réunit ces groupes. Les compteurs de synthèse portent sur l'ensemble de l'analyse ; la table et les exports suivent les filtres.
 
-Les identités manquantes ou non exploitables sont signalées. Un échec de lecture des paramètres produit un rapport **PARTIEL**, qui peut manquer des doublons. Un échec d'inventaire ou d'authentification bloque le rapport. La couverture dépend des droits du token et les deux bibliothèques ne constituent pas un instantané atomique : évitez de les modifier pendant l'analyse.
+Les identités manquantes ou non exploitables sont signalées. Un échec de lecture des paramètres produit un rapport **PARTIEL**, qui peut manquer des doublons. Un échec réseau, d'authentification ou de curseur bloque le rapport. La couverture dépend des droits du token et les deux bibliothèques ne constituent pas un instantané atomique : évitez de les modifier pendant l'analyse.
+
+Depuis la version 1.0.1, la pagination suit les curseurs jusqu'à la dernière page. Les lignes répétées sont dédoublonnées par identifiant de composant. Un total API incohérent ou changeant produit un rapport **PARTIEL** avec tous les composants lus, au lieu de bloquer la comparaison. Le diagnostic d'inventaire affiche les lignes reçues, composants distincts, répétitions, pages et totaux annoncés ; ces informations figurent aussi dans l'export JSON. Un composant répété avec des valeurs différentes rend également le rapport partiel. Les curseurs absents, répétés ou une pagination sans progression restent bloquants.
 
 Les tokens restent en mémoire et ne figurent ni dans les fichiers exportés, ni dans les journaux, ni dans le stockage du navigateur. Fermez l'exécutable pour les effacer de la session. L'application écoute uniquement sur l'adresse locale `127.0.0.1` et ne modifie aucune donnée Altium. Les noms, URL des workspaces et la langue sont mémorisés dans le navigateur.
 

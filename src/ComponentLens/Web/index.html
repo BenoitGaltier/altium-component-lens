@@ -46,6 +46,7 @@
       <div class="results-main">
         <div id="demo-banner" class="demo-banner" hidden><span data-i18n="demoBanner"></span><button id="leave-demo" class="text-link" data-i18n="leaveDemo"></button></div>
         <div id="partial-banner" class="partial-banner" role="status" hidden></div>
+        <section id="inventory-panel" class="inventory-panel" hidden aria-labelledby="inventory-title"><h2 id="inventory-title" data-i18n="inventoryTitle"></h2><div id="inventory-content"></div></section>
         <div class="metric-grid"><div class="metric"><span data-i18n="crossMatches"></span><strong id="metric-cross">—</strong><small data-i18n="identityGroups"></small></div><div class="metric"><span data-i18n="componentsA"></span><strong id="metric-a">—</strong><small id="metric-a-note" data-i18n="latestRevisions"></small></div><div class="metric"><span data-i18n="componentsB"></span><strong id="metric-b">—</strong><small id="metric-b-note" data-i18n="latestRevisions"></small></div><button id="quality" class="metric quality-metric"><span data-i18n="dataQuality"></span><strong id="metric-quality">—</strong><small data-i18n="missingIdentity"></small></button></div>
         <div class="result-panel"><div class="results-heading"><div><h2 id="results-title" data-i18n="results"></h2><p id="result-caption" data-i18n="resultsCaption"></p></div><div class="export-actions"><button id="export-csv" class="button small secondary" disabled>↓ CSV</button><button id="export-json" class="button small secondary" disabled>↓ JSON</button></div></div>
           <div class="table-toolbar"><div class="tabs" role="tablist" data-i18n-aria="scope"><button class="tab active" role="tab" aria-selected="true" data-scope="cross" data-i18n="scopeCross"></button><button class="tab" role="tab" aria-selected="false" data-scope="a" data-i18n="scopeA"></button><button class="tab" role="tab" aria-selected="false" data-scope="b" data-i18n="scopeB"></button><button class="tab" role="tab" aria-selected="false" data-scope="all" data-i18n="scopeAll"></button></div><label class="search-wrap"><span aria-hidden="true">⌕</span><span class="sr-only" data-i18n="searchResults"></span><input id="result-search" type="search" data-i18n-placeholder="searchResults"></label></div>
@@ -54,7 +55,7 @@
         <section id="quality-panel" class="quality-panel" hidden><div class="filter-heading"><h2 data-i18n="qualityTitle"></h2><button id="close-quality" class="text-link" data-i18n="close"></button></div><p data-i18n="qualityHint"></p><div id="quality-content"></div><button id="export-issues" class="button small secondary" data-i18n="exportIssues"></button></section>
       </div>
     </section>
-    <footer><span>Component Lens <span class="footer-version">v1.0.0</span></span><span data-i18n="footer"></span><a href="https://www.altium.com/documentation/altium-developer-center/altium-365/api" target="_blank" rel="noreferrer" data-i18n="apiDocs"></a></footer>
+    <footer><span>Component Lens <span class="footer-version">v1.0.1</span></span><span data-i18n="footer"></span><a href="https://www.altium.com/documentation/altium-developer-center/altium-365/api" target="_blank" rel="noreferrer" data-i18n="apiDocs"></a></footer>
   </main>
 </body>
 </html>

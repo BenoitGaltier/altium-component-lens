@@ -60,10 +60,13 @@ public sealed class LensSession(AltiumClient altium, IHostApplicationLifetime li
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(scan.Cancellation.Token, lifetime.ApplicationStopping);
         try
         {
-            var tasks = new[] { altium.Load(first, scan.Report, linked.Token), altium.Load(second, scan.Report, linked.Token) };
+            var inventories = new System.Collections.Concurrent.ConcurrentDictionary<string, InventoryDiagnostics>();
+            void Inventory(InventoryDiagnostics value) => inventories[value.Workspace] = value;
+            var tasks = new[] { altium.Load(first, scan.Report, linked.Token, Inventory), altium.Load(second, scan.Report, linked.Token, Inventory) };
             var loaded = await Task.WhenAll(tasks);
             linked.Token.ThrowIfCancellationRequested();
-            scan.Complete(DuplicateDetector.Compare(first.Info, loaded[0], second.Info, loaded[1], scan.IgnoreCase));
+            scan.Complete(DuplicateDetector.Compare(first.Info, loaded[0], second.Info, loaded[1], scan.IgnoreCase,
+                inventories: inventories.Values.OrderBy(x => x.Workspace).ToArray()));
         }
         catch (OperationCanceledException) { scan.Fail("cancelled"); }
         catch (LensException ex) { scan.Fail(ex.Code); }
