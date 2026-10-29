@@ -1,0 +1,25 @@
+COMPONENT LENS 1.0.0 — Portable for Windows x64
+
+FR : Décompressez le ZIP, puis lancez ComponentLens.exe. Le navigateur s'ouvre.
+Gardez la console ouverte. Connectez les deux workspaces avec leurs URL et tokens
+API, puis recherchez les doublons. Choisissez FR, EN ou ES en haut à droite.
+La démo ne nécessite aucun token. Les tokens restent en mémoire pour la session.
+Fermez la console ou cliquez sur Quitter pour arrêter l'application.
+
+EN: Extract the ZIP and run ComponentLens.exe. Your browser opens automatically.
+Keep the console open. Connect both workspaces with their URLs and API tokens,
+then find duplicates. Choose FR, EN or ES at the top right. Demo needs no tokens.
+Tokens remain in memory for this session. Close the console or select Quit to stop.
+
+ES: Extrae el ZIP y ejecuta ComponentLens.exe. El navegador se abre automáticamente.
+Mantén abierta la consola. Conecta ambos workspaces con sus URL y tokens de API
+y busca duplicados. Elige FR, EN o ES arriba a la derecha. La demo no necesita
+tokens. Los tokens permanecen en memoria. Cierra la consola o pulsa Salir.
+
+Requires Windows 10/11 x64, a modern browser and Altium 365 API access.
+No Node.js, .NET or Altium Designer installation needed. The embedded .NET runtime
+may unpack native files into the temporary directory. This build is unsigned.
+Only visible library data can be compared; partial reports are clearly marked.
+Read-only: this app never modifies Altium data.
+
+Documentation: see the GitHub repository README and docs/VALIDATION.md.
