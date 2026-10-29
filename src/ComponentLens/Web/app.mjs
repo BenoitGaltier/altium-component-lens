@@ -9,8 +9,7 @@ const hash = new URLSearchParams(location.hash.slice(1));
 let session = hash.get('session');
 if (session) { try { sessionStorage.setItem('lens.session', session); } catch {} history.replaceState(null, '', location.pathname); }
 else { try { session = sessionStorage.getItem('lens.session'); } catch {} }
-const state = { a: null, b: null, result: null, realResult: null, categories: new Set(), scope: 'cross', query: '', page: 0, expanded: new Set(), running: false, connecting: new Set(), job: null, notice: null, stopped: false };
-const pageSize = 20;
+const state = { a: null, b: null, result: null, realResult: null, categories: new Set(), scope: 'cross', query: '', expanded: new Set(), running: false, connecting: new Set(), job: null, notice: null, stopped: false, savedCredentials: new Set(), savedWorkspaces: {}, dataDirectory: null, storageError: null, cached: false, dirty: new Set() };
 const t = (key, values) => translate(language, key, values);
 const number = value => new Intl.NumberFormat(language).format(value);
 const el = (tag, className, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; };
@@ -41,6 +40,7 @@ function controls() {
   $('scan').hidden = state.running; $('cancel').hidden = !state.running;
   $('demo').disabled = state.running || state.stopped;
   $('ignore-case').disabled = state.running;
+  $('forget-local').disabled = state.running || state.connecting.size > 0 || state.stopped;
   for (const slot of ['a', 'b']) {
     for (const input of $('form-' + slot).querySelectorAll('input')) input.disabled = state.running || state.connecting.has(slot) || state.stopped;
     const button = $('form-' + slot).querySelector('[type=submit]'); button.disabled = state.running || state.connecting.has(slot) || state.stopped;
@@ -49,11 +49,30 @@ function controls() {
 }
 function renderConnection(slot) {
   const info = state[slot];
-  $('status-' + slot).textContent = t(state.connecting.has(slot) ? 'connecting' : info ? 'connected' : 'notConnected');
+  $('status-' + slot).textContent = t(state.connecting.has(slot) ? 'connecting' : info?.restored ? 'savedConnection' : info ? 'connected' : 'notConnected');
   $('status-' + slot).className = 'connection-status' + (info ? ' connected' : '');
-  $('note-' + slot).textContent = info ? t('connectedNote', { components: number(info.componentCount), categories: number(info.categories.length) }) : t('memoryOnly');
+  $('note-' + slot).textContent = info ? t(state.dataDirectory ? 'connectedNote' : 'connectedNoteNoStorage', { components: number(info.componentCount), categories: number(info.categories.length) }) : t('memoryOnly');
+  const saved = state.savedWorkspaces[slot];
+  let reuse = false;
+  try { const raw = $('endpoint-' + slot).value.trim(); const url = new URL(raw.startsWith('https://') ? raw : 'https://' + raw); reuse = state.savedCredentials.has(slot) && saved && url.origin === new URL(saved.endpoint).origin && ['/', '/api/graphql', '/api/graphql/'].includes(url.pathname); } catch {}
+  $('token-' + slot).required = !reuse;
+  $('token-' + slot).placeholder = reuse ? t('savedTokenPlaceholder') : '••••••••••••••••••••••••';
   $('note-' + slot).className = 'connection-note';
   controls();
+}
+function applySession(current, fillFields = false) {
+  state.savedCredentials = new Set(current.savedCredentials || []);
+  state.dataDirectory = current.dataDirectory || null; state.storageError = current.storageError;
+  for (const slot of ['a', 'b']) {
+    if (fillFields) state.dirty.delete(slot);
+    state[slot] = state.dirty.has(slot) ? null : current[slot]; state.savedWorkspaces[slot] = current[slot];
+    if (fillFields) { $('name-' + slot).value = current[slot]?.name || ''; $('endpoint-' + slot).value = current[slot]?.endpoint || ''; }
+    renderConnection(slot);
+  }
+  $('data-directory').textContent = state.dataDirectory || t('storageDisabled');
+  $('storage-error').hidden = !state.storageError;
+  $('storage-error').textContent = state.storageError ? t(state.storageError) : '';
+  if (state.storageError) $('local-settings').open = true;
 }
 async function connect(slot, event) {
   event.preventDefault();
@@ -64,11 +83,13 @@ async function connect(slot, event) {
   state.connecting.add(slot); renderConnection(slot);
   try {
     const info = await api('/api/workspaces/' + slot + '/connect', { method: 'POST', body: JSON.stringify({ name, endpoint, token }) });
-    state[slot] = info;
     $('token-' + slot).value = ''; $('token-' + slot).type = 'password';
     $('name-' + slot).value = info.name; $('endpoint-' + slot).value = info.endpoint;
     storage.set('lens.workspace.' + slot, JSON.stringify({ name: info.name, endpoint: info.endpoint }));
-    state.result = null; state.realResult = null; state.categories.clear(); state.notice = null;
+    state.dirty.delete(slot);
+    const current = await api('/api/session'); applySession(current);
+    state.result = current.hasComparison ? await api('/api/comparison') : null; state.realResult = state.result; state.cached = !!state.result;
+    state.categories.clear(); state.notice = null;
     renderCategories(); renderResults(); renderNotice();
   } catch (error) { notify(error.message, 'error'); }
   finally { state.connecting.delete(slot); renderConnection(slot); document.querySelector(`.reveal[data-slot="${slot}"]`).textContent = t($('token-' + slot).type === 'password' ? 'showToken' : 'hideToken'); }
@@ -80,14 +101,14 @@ function renderCategories() {
   if (!categories.length) { list.append(el('p', 'category-empty', t('noCategories'))); return; }
   const all = el('label', 'category-option' + (!state.categories.size ? ' selected' : ''));
   const allCheck = el('input'); allCheck.type = 'checkbox'; allCheck.checked = !state.categories.size;
-  allCheck.addEventListener('change', () => { state.categories.clear(); state.page = 0; renderCategories(); renderResults(); });
+  allCheck.addEventListener('change', () => { state.categories.clear(); renderCategories(); renderResults(); });
   all.append(allCheck, el('span', '', t('allCategories'))); list.append(all);
   const needle = $('category-search').value.toLocaleLowerCase();
   const visible = categories.filter(c => (c.path + c.name).toLocaleLowerCase().includes(needle));
   for (const category of visible) {
     const row = el('label', 'category-option' + (state.categories.has(category.key) ? ' selected' : ''));
     const check = el('input'); check.type = 'checkbox'; check.checked = state.categories.has(category.key);
-    check.addEventListener('change', () => { check.checked ? state.categories.add(category.key) : state.categories.delete(category.key); state.page = 0; renderCategories(); renderResults(); });
+    check.addEventListener('change', () => { check.checked ? state.categories.add(category.key) : state.categories.delete(category.key); renderCategories(); renderResults(); });
     const label = el('span', '', category.name || t('uncategorized'));
     if (category.path && category.path !== category.name) label.append(el('small', '', category.path));
     row.title = category.path || t('uncategorized'); row.append(check, label, el('em', '', [...category.slots].sort().map(x => x.toUpperCase()).join(' · '))); list.append(row);
@@ -122,16 +143,20 @@ function detailWorkspace(slot, group) {
 }
 function renderResults() {
   const result = state.result;
+  $('saved-banner').hidden = !result || result.demo || !state.dataDirectory;
+  $('saved-banner').textContent = result && !result.demo ? t(state.storageError ? 'comparisonNotSaved' : state.cached ? 'comparisonRestored' : 'comparisonSaved', { date: new Intl.DateTimeFormat(language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(result.createdAt)) }) : '';
   $('demo-banner').hidden = !result?.demo;
   $('partial-banner').hidden = result?.completeness !== 'partial';
   $('partial-banner').textContent = result?.completeness === 'partial' ? t('partialNotice') : '';
-  const inventories = (result?.inventories || []).filter(i => i.warnings.length || i.repeatedRows);
+  const inventories = (result?.inventories || []).filter(i => i.warnings.length || i.repeatedRows || i.notices?.length);
   $('inventory-panel').hidden = !inventories.length;
+  $('inventory-panel').classList.toggle('informational', inventories.length > 0 && inventories.every(i => !i.warnings.length));
   $('inventory-content').replaceChildren();
   for (const inventory of inventories) {
     const row = el('article', 'inventory-diagnostic'); row.append(el('strong', '', inventory.workspaceName));
     row.append(el('p', '', t('inventoryCounts', { distinct: number(inventory.distinctComponents), rows: number(inventory.rowsRead), totals: inventory.reportedTotals.map(number).join(' → '), pages: number(inventory.pages) })));
     if (inventory.repeatedRows) row.append(el('p', '', t('repeatedRows', { count: number(inventory.repeatedRows) })));
+    for (const notice of inventory.notices || []) row.append(el('p', 'inventory-notice', t(notice)));
     for (const warning of inventory.warnings) row.append(el('p', 'detail-warning', t(warning)));
     $('inventory-content').append(row);
   }
@@ -144,7 +169,6 @@ function renderResults() {
   const groups = currentGroups();
   $('export-csv').disabled = !result; $('export-json').disabled = !result;
   const count = groups.length;
-  state.page = Math.max(0, Math.min(state.page, Math.ceil(count / pageSize) - 1));
   const content = $('result-content'); content.replaceChildren();
   if (!result || !count) content.append(emptyState(!result));
   else {
@@ -152,7 +176,7 @@ function renderResults() {
     const head = el('thead'), header = el('tr');
     for (const key of ['colPart', 'colCategory', 'colA', 'colB', 'colDetails']) { const th = el('th', '', t(key)); th.scope = 'col'; header.append(th); }
     head.append(header); table.append(head); const body = el('tbody');
-    for (const group of groups.slice(state.page * pageSize, (state.page + 1) * pageSize)) {
+    for (const group of groups) {
       const row = el('tr');
       const part = el('td'); const button = el('button', 'mpn-button', group.mpn); const opened = state.expanded.has(group.id);
       button.setAttribute('aria-expanded', String(opened)); button.setAttribute('aria-controls', 'details-' + group.id);
@@ -171,9 +195,6 @@ function renderResults() {
     table.append(body); wrapper.append(table); content.append(wrapper);
   }
   $('result-caption').textContent = result ? t(count === 1 ? 'resultsCountOne' : 'resultsCount', { count: number(count), date: new Intl.DateTimeFormat(language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(result.createdAt)) }) : t('resultsCaption');
-  $('pagination').hidden = count <= pageSize;
-  $('page-info').textContent = t('pageInfo', { from: number(state.page * pageSize + 1), to: number(Math.min((state.page + 1) * pageSize, count)), count: number(count) });
-  $('previous').disabled = state.page === 0; $('next').disabled = (state.page + 1) * pageSize >= count;
   renderQuality();
 }
 function renderQuality() {
@@ -182,12 +203,11 @@ function renderQuality() {
   if (!issues.length) box.append(el('p', 'category-empty', t('noIssues')));
   else {
     const list = el('div', 'quality-list');
-    for (const issue of issues.slice(0, 200)) {
+    for (const issue of issues) {
       const item = el('div', 'quality-item'); const detail = el('div', '', `${issue.name} · ${issue.workspaceName}`); detail.append(el('small', '', t(issue.reason + 'Reason')));
       item.append(el('span', '', issue.workspace.toUpperCase()), detail); list.append(item);
     }
     box.append(list);
-    if (issues.length > 200) box.append(el('p', 'quality-more', t('pageInfo', { from: 1, to: 200, count: number(issues.length) })));
   }
   $('export-issues').disabled = !issues.length;
 }
@@ -215,13 +235,18 @@ async function scan(existingJob = null) {
     }
     renderProgress(job.progress);
     if (job.status === 'completed') {
-      state.result = await api(`/api/scans/${state.job}/results`); state.realResult = state.result; state.page = 0;
+      state.result = await api(`/api/scans/${state.job}/results`); state.realResult = state.result; state.cached = false;
+      applySession(await api('/api/session'));
       $('ignore-case').checked = state.result.ignoreCase;
-      notify(state.result.completeness === 'partial' ? 'partialNotice' : 'completeNotice', state.result.completeness === 'partial' ? 'warning' : 'success', { count: number(state.result.completeness === 'partial' ? state.result.summary.detailFailures : state.result.summary.crossGroups) });
+      if (state.result.completeness === 'partial') { state.notice = null; renderNotice(); }
+      else notify('completeNotice', 'success', { count: number(state.result.summary.crossGroups) });
       renderCategories(); renderResults();
     } else if (job.status === 'cancelled') notify('cancelledNotice', 'warning');
     else throw new Error(job.errorCode || 'unexpectedError');
-  } catch (error) { notify(error.message, 'error'); }
+  } catch (error) {
+    notify(error.message, 'error');
+    try { const current = await api('/api/session'); if (current.hasComparison) { state.result = await api('/api/comparison'); state.realResult = state.result; state.cached = true; renderCategories(); renderResults(); } } catch {}
+  }
   finally { state.running = false; state.job = null; controls(); $('progress-panel').hidden = true; $('cancel').disabled = false; }
 }
 function download(contents, extension, mime) {
@@ -233,23 +258,31 @@ for (const slot of ['a', 'b']) {
   try { const saved = JSON.parse(storage.get('lens.workspace.' + slot)); if (saved) { $('name-' + slot).value = saved.name; $('endpoint-' + slot).value = saved.endpoint; } } catch {}
   $('form-' + slot).addEventListener('submit', event => connect(slot, event));
   // Editing connection settings invalidates the connected UI until explicitly reconnected.
-  for (const input of $('form-' + slot).querySelectorAll('input')) input.addEventListener('input', () => { if (state[slot]) { state[slot] = null; renderConnection(slot); } });
+  for (const input of $('form-' + slot).querySelectorAll('input')) input.addEventListener('input', () => { state.dirty.add(slot); state[slot] = null; renderConnection(slot); });
 }
 for (const button of document.querySelectorAll('.reveal')) button.addEventListener('click', () => { const input = $('token-' + button.dataset.slot); input.type = input.type === 'password' ? 'text' : 'password'; button.textContent = t(input.type === 'password' ? 'showToken' : 'hideToken'); });
-$('language').addEventListener('change', () => { language = $('language').value; storage.set('lens.language', language); applyLanguage(); });
+$('language').addEventListener('change', async () => { language = $('language').value; storage.set('lens.language', language); applyLanguage(); try { await api('/api/preferences', { method: 'POST', body: JSON.stringify({ language }) }); } catch (error) { notify(error.message, 'error'); } });
 $('scan').addEventListener('click', () => scan());
 $('cancel').addEventListener('click', async () => { if (!state.job) return; $('cancel').disabled = true; try { await api('/api/scans/' + state.job + '/cancel', { method: 'POST' }); } catch (error) { notify(error.message, 'error'); $('cancel').disabled = false; } });
-$('demo').addEventListener('click', async () => { try { const result = await api('/api/demo'); state.result = result; state.expanded.clear(); state.categories.clear(); state.page = 0; state.scope = 'cross'; state.query = ''; $('result-search').value = ''; syncTabs(); state.notice = null; renderNotice(); renderCategories(); renderResults(); } catch (error) { notify(error.message, 'error'); } });
-$('leave-demo').addEventListener('click', () => { state.result = state.realResult; state.expanded.clear(); state.categories.clear(); state.page = 0; renderCategories(); renderResults(); });
+$('demo').addEventListener('click', async () => { try { const result = await api('/api/demo'); state.result = result; state.expanded.clear(); state.categories.clear(); state.scope = 'cross'; state.query = ''; $('result-search').value = ''; syncTabs(); state.notice = null; renderNotice(); renderCategories(); renderResults(); } catch (error) { notify(error.message, 'error'); } });
+$('leave-demo').addEventListener('click', () => { state.result = state.realResult; state.expanded.clear(); state.categories.clear(); renderCategories(); renderResults(); });
 $('category-search').addEventListener('input', renderCategories);
-$('clear-categories').addEventListener('click', () => { state.categories.clear(); $('category-search').value = ''; state.page = 0; renderCategories(); renderResults(); });
-$('result-search').addEventListener('input', () => { state.query = $('result-search').value; state.page = 0; renderResults(); });
+$('clear-categories').addEventListener('click', () => { state.categories.clear(); $('category-search').value = ''; renderCategories(); renderResults(); });
+$('result-search').addEventListener('input', () => { state.query = $('result-search').value; renderResults(); });
 function syncTabs() { for (const button of document.querySelectorAll('[data-scope]')) { const active = button.dataset.scope === state.scope; button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1; } }
 for (const button of document.querySelectorAll('[data-scope]')) {
-  button.addEventListener('click', () => { state.scope = button.dataset.scope; state.page = 0; syncTabs(); renderResults(); });
+  button.addEventListener('click', () => { state.scope = button.dataset.scope; syncTabs(); renderResults(); });
   button.addEventListener('keydown', event => { if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const tabs = [...document.querySelectorAll('[data-scope]')]; const current = tabs.indexOf(button); const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; tabs[index].click(); tabs[index].focus(); });
 }
-$('previous').addEventListener('click', () => { state.page--; renderResults(); }); $('next').addEventListener('click', () => { state.page++; renderResults(); });
+$('forget-local').addEventListener('click', async () => {
+  if (!confirm(t('confirmForgetLocal'))) return;
+  try {
+    await api('/api/local-data', { method: 'DELETE' }); applySession(await api('/api/session'), true);
+    state.result = null; state.realResult = null; state.cached = false; state.categories.clear();
+    for (const slot of ['a', 'b']) { $('token-' + slot).value = ''; try { localStorage.removeItem('lens.workspace.' + slot); } catch {} }
+    state.notice = null; renderNotice(); renderCategories(); renderResults();
+  } catch (error) { notify(error.message, 'error'); }
+});
 $('quality').addEventListener('click', () => { $('quality-panel').hidden = !$('quality-panel').hidden; if (!$('quality-panel').hidden) $('quality-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
 $('close-quality').addEventListener('click', () => { $('quality-panel').hidden = true; });
 $('export-csv').addEventListener('click', () => download(exportCsv(state.result, currentGroups()), 'csv', 'text/csv;charset=utf-8'));
@@ -261,13 +294,12 @@ if (!session) notify('sessionLost', 'error');
 else {
   try {
     const current = await api('/api/session');
-    for (const slot of ['a', 'b']) if (current[slot]) {
-      state[slot] = current[slot]; $('name-' + slot).value = current[slot].name; $('endpoint-' + slot).value = current[slot].endpoint; renderConnection(slot);
-    }
+    if (languages.includes(current.language)) language = current.language;
+    applySession(current, true); applyLanguage();
     renderCategories(); renderResults();
     if (current.job?.status === 'running') await scan(current.job);
-    else if (current.job?.status === 'completed') {
-      state.result = await api(`/api/scans/${current.job.id}/results`); state.realResult = state.result; $('ignore-case').checked = state.result.ignoreCase; renderCategories(); renderResults();
+    else if (current.hasComparison || current.job?.status === 'completed') {
+      state.result = await api(current.hasComparison ? '/api/comparison' : `/api/scans/${current.job.id}/results`); state.realResult = state.result; state.cached = true; $('ignore-case').checked = state.result.ignoreCase; renderCategories(); renderResults();
     } else if (current.job?.status === 'failed') notify(current.job.errorCode, 'error');
   } catch (error) { notify(error.message, 'error'); }
 }

@@ -16,6 +16,8 @@ Requisitos: Windows 10/11 x64, navegador moderno, conexión a Altium 365 y un to
 
 **Explorar demo** utiliza datos ficticios identificados y no accede a ningún workspace.
 
+Todos los grupos duplicados se muestran en una sola página, sin botón Siguiente. Las URL, los tokens, el idioma y la última comparación se guardan automáticamente en `%LOCALAPPDATA%\ComponentLens\state.dat`, cifrado por Windows para tu cuenta. Al reiniciar se restauran las conexiones y la comparación fechada sin contactar con Altium. Ejecuta un nuevo análisis para actualizar los datos. Al actualizar desde 1.0.x hay que introducir los tokens una vez, porque las versiones anteriores no los guardaban.
+
 ## Criterios y cobertura
 
 Se comparan los Part Choices y los parámetros de fabricante/MPN, incluidas las parejas numeradas. Solo se usa la última revisión de cada componente. La normalización ignora mayúsculas y espacios exteriores y unifica los espacios del fabricante; conserva la puntuación y los espacios interiores del MPN. Desactívala para comparar valores originales exactos. No se fusionan automáticamente los alias de fabricantes ni las equivalencias eléctricas.
@@ -26,8 +28,10 @@ Las categorías proceden de Altium y usan su ruta completa. Un grupo sigue visib
 
 Las identidades ausentes o no utilizables se indican como incidencias. Si falla la lectura de parámetros, el informe es **PARCIAL** y puede omitir duplicados. Los fallos de red, autenticación o cursores impiden generar el informe. La cobertura depende de los permisos del token; no hay un único instante de captura para ambas bibliotecas. Evita modificarlas durante el análisis.
 
-Desde la versión 1.0.1, la paginación sigue los cursores hasta la última página. Las filas repetidas se deduplican por identificador de componente. Un total de API distinto o cambiante genera un informe **PARCIAL** con todos los componentes leídos, sin bloquear la comparación. El diagnóstico muestra filas, componentes distintos, repeticiones, páginas y totales anunciados; la exportación JSON conserva estos datos. Un componente repetido con valores distintos también hace que el informe sea parcial. Los cursores ausentes, repetidos o una paginación sin progreso siguen deteniendo el análisis.
+La paginación de la API sigue los cursores hasta la última página. Las filas repetidas se deduplican por identificador. Si los componentes distintos superan un total de API estable, una segunda lectura completa verifica los identificadores y metadatos. Dos lecturas idénticas convierten la diferencia en información, sin una falsa advertencia de informe parcial. Los inventarios incompletos o cambiantes, las verificaciones fallidas y los parámetros no leídos conservan el estado **PARCIAL**, con un solo aviso. El diagnóstico y el JSON mantienen los detalles. Los cursores ausentes, repetidos o sin progreso siguen deteniendo el análisis.
 
-Los tokens solo permanecen en memoria y no se guardan en exportaciones, registros ni almacenamiento del navegador. Cierra el ejecutable para descartarlos. La aplicación escucha únicamente en `127.0.0.1` y no modifica datos de Altium. Solo se recuerdan los nombres, URL de los workspaces y el idioma.
+Los tokens guardados nunca se devuelven al navegador ni aparecen en exportaciones o registros. Deja vacío el campo de token para reutilizar el guardado para la misma URL. Cambiar la URL requiere otro token e invalida la comparación anterior; renovar el token para la misma URL conserva la comparación. Un informe parcial sigue siendo parcial al restaurarlo. La demo no se guarda como resultado real.
+
+**Datos locales** muestra la carpeta y permite borrar conexiones, comparación y copia de seguridad cifrada. Solo una instancia puede usar esa carpeta a la vez. Los archivos alterados o indescifrables se conservan y se indican. La aplicación escucha únicamente en `127.0.0.1` y no modifica datos de Altium.
 
 El ejecutable incluye .NET y puede extraer archivos nativos al directorio temporal en el primer inicio. La distribución no está firmada. Para compilar y verificar, consulta el [README principal](../README.md) y las [notas de validación](VALIDATION.md).

@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using ComponentLens;
 
+if (args.Contains("--fixture-server")) { await FixtureServer.Run(args); return 0; }
+
 var tests = new List<(string Name, Func<Task> Run)>();
 void Test(string name, Action run) => tests.Add((name, () => { run(); return Task.CompletedTask; }));
 void AsyncTest(string name, Func<Task> run) => tests.Add((name, run));
@@ -160,7 +162,7 @@ AsyncTest("A repeated component with changed part choices is retained and report
     Assert(loaded.Count == 1 && loaded[0].PartChoices[0].Mpn == "RC-200" && inventory!.Warnings.Contains("componentChanged"));
 });
 foreach (var overlappingRows in new[] { true, false })
-AsyncTest(overlappingRows ? "Regression: 1323 rows for 1321 components deduplicate without false duplicates" : "Regression: 1323 distinct components with API total 1321 remain available in a partial report", async () => {
+AsyncTest(overlappingRows ? "Regression: 1323 rows for 1321 components deduplicate without false duplicates" : "Regression: stable 1323 distinct components with API total 1321 are independently verified", async () => {
     const int announced = 1321;
     var actual = overlappingRows ? 1321 : 1323;
     var detailReads = 0;
@@ -186,9 +188,30 @@ AsyncTest(overlappingRows ? "Regression: 1323 rows for 1321 components deduplica
     Assert(loaded.Count == actual && detailReads == actual);
     Assert(inventory!.RowsRead == 1323 && inventory.Pages == 14 && inventory.RepeatedRows == (overlappingRows ? 2 : 0));
     var result = DuplicateDetector.Compare(W("a"), loaded, W("b"), [], true, inventories: [inventory]);
-    Assert(result.Completeness == (overlappingRows ? "complete" : "partial"));
+    Assert(result.Completeness == "complete");
+    if (!overlappingRows) Assert(inventory.Verification?.Matches == true && inventory.Notices!.Contains("apiCountVerified"));
     // Part choices remain distinct; only the mocked identical parameter identity forms a group.
     Assert(result.Groups.All(g => g.A.Select(o => o.Id).Distinct().Count() == g.A.Count));
+});
+foreach (var failure in new[] { "differentIds", "invalidResponse", "authentication" })
+AsyncTest("Inventory verification preserves real uncertainty: " + failure, async () => {
+    var pages = 0; InventoryDiagnostics? inventory = null;
+    var client = Client((req, ct) => {
+        using var body = Request(req);
+        if (!body.RootElement.GetProperty("query").GetString()!.Contains("LensComponents("))
+            return Task.FromResult(Json(details.Replace("\"id\":\"c1\"", "\"id\":\"" + body.RootElement.GetProperty("variables").GetProperty("id").GetString() + "\"")));
+        pages++;
+        if (pages == 3 && failure == "invalidResponse") return Task.FromResult(Json("{}"));
+        if (pages == 3 && failure == "authentication") return Task.FromResult(Json("{}", HttpStatusCode.Unauthorized));
+        var page = pages % 2 == 1 ? componentsPage1 : componentsPage2;
+        if (pages > 2) page = page.Replace("\"id\":\"c2\"", "\"id\":\"changed-id\"");
+        return Task.FromResult(Json(page.Replace("\"totalCount\":2", "\"totalCount\":1")));
+    });
+    if (failure == "authentication") { await Code("apiAuth", () => client.Load(WC("a"), _ => {}, default)); return; }
+    var loaded = await client.Load(WC("a"), _ => {}, default, value => inventory = value);
+    Assert(loaded.Count == 2 && inventory!.Warnings.Contains("reportedCountMismatch") && inventory.Verification?.Matches == false);
+    Assert(inventory!.Warnings.Contains(failure == "differentIds" ? "inventoryVerificationMismatch" : "inventoryVerificationFailed"));
+    Assert(DuplicateDetector.Compare(W("a"), loaded, W("b"), [], true, inventories: [inventory]).Completeness == "partial");
 });
 AsyncTest("Token expiry during detail reads stops the whole scan", async () => {
     var client = Client((req, ct) => {
@@ -264,6 +287,8 @@ AsyncTest("Session resumes completed results without returning tokens and invali
     await session.Connect("a", new("Changed A", W("a").Endpoint, "test-token"), default);
     await Code("jobNotFound", () => { session.GetJob(id); return Task.CompletedTask; });
 });
+
+PersistenceTests.Register(AsyncTest);
 
 var failures = 0;
 foreach (var (name, run) in tests)

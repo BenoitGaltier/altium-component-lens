@@ -17,7 +17,7 @@ try {
     # The published executable must not resolve a separately installed .NET runtime.
     $env:DOTNET_ROOT = Join-Path $repo '.artifacts/nonexistent-runtime'
     $env:DOTNET_MULTILEVEL_LOOKUP = '0'
-    $process = Start-Process -FilePath $Executable -ArgumentList '--headless','--port','0' -WorkingDirectory $repo -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+    $process = Start-Process -FilePath $Executable -ArgumentList '--headless','--port','0','--data-dir',".artifacts/smoke-$runId-state" -WorkingDirectory $repo -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
     $address = $null
     for ($attempt = 0; $attempt -lt 100; $attempt++) {
         if ($process.HasExited) { throw 'Portable process exited before startup' }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace ComponentLens;
@@ -120,8 +121,8 @@ public sealed class AltiumClient(HttpClient http)
         return new(new(slot, name, endpoint.AbsoluteUri, count, categories.DistinctBy(x => x.Id).OrderBy(x => x.Path).ToArray()), token);
     }
 
-    public async Task<IReadOnlyList<Component>> Load(WorkspaceConnection workspace, Action<ScanProgress> progress, CancellationToken ct,
-        Action<InventoryDiagnostics>? inventoryReport = null)
+    private async Task<(Component[] Components, InventoryDiagnostics Diagnostics, string Fingerprint)> ReadInventory(
+        WorkspaceConnection workspace, Action<ScanProgress> progress, CancellationToken ct, string phase)
     {
         var byId = new Dictionary<string, Component>(StringComparer.Ordinal);
         var seen = new HashSet<string>();
@@ -155,7 +156,7 @@ public sealed class AltiumClient(HttpClient http)
                     !previous.PartChoices.SequenceEqual(component.PartChoices))) changedComponents.Add(id);
                 byId[id] = component;
             }
-            progress(new(workspace.Info.Slot, "listing", byId.Count, pageTotal));
+            progress(new(workspace.Info.Slot, phase, byId.Count, pageTotal));
             after = NextCursor(connection, seen);
             if (after is not null && byId.Count == previousCount) throw new LensException("apiPaginationStalled");
         } while (after is not null);
@@ -167,9 +168,47 @@ public sealed class AltiumClient(HttpClient http)
         if (totals.Length > 1) warnings.Add("reportedTotalChanged");
         if (totals.Any(total => total != byId.Count)) warnings.Add("reportedCountMismatch");
         if (changedComponents.Count > 0) warnings.Add("componentChanged");
-        inventoryReport?.Invoke(new(workspace.Info.Slot, workspace.Info.Name, pages, rowsRead,
-            byId.Count, rowsRead - byId.Count, totals, warnings));
         var components = byId.Values.ToArray();
+        var canonical = components.OrderBy(c => c.Id, StringComparer.Ordinal).Select(c => new {
+            c.Id, c.Name, c.Revision, c.Description, c.Category, c.Folder,
+            Parts = c.PartChoices.OrderBy(p => p.Manufacturer, StringComparer.Ordinal).ThenBy(p => p.Mpn, StringComparer.Ordinal)
+        });
+        var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(canonical)));
+        return (components, new(workspace.Info.Slot, workspace.Info.Name, pages, rowsRead,
+            byId.Count, rowsRead - byId.Count, totals, warnings), fingerprint);
+    }
+
+    public async Task<IReadOnlyList<Component>> Load(WorkspaceConnection workspace, Action<ScanProgress> progress, CancellationToken ct,
+        Action<InventoryDiagnostics>? inventoryReport = null)
+    {
+        var inventory = await ReadInventory(workspace, progress, ct, "listing");
+        var diagnostics = inventory.Diagnostics;
+        // A stable under-reported counter is informational only after a second complete,
+        // independent cursor traversal returns the same IDs and comparison-relevant metadata.
+        if (diagnostics.ReportedTotals.Count == 1 && diagnostics.DistinctComponents > diagnostics.ReportedTotals[0] &&
+            diagnostics.Warnings.SequenceEqual(new[] { "reportedCountMismatch" }))
+        {
+            try
+            {
+                var verification = await ReadInventory(workspace, progress, ct, "verifying");
+                var matches = inventory.Fingerprint == verification.Fingerprint &&
+                    diagnostics.ReportedTotals.SequenceEqual(verification.Diagnostics.ReportedTotals) &&
+                    verification.Diagnostics.Warnings.SequenceEqual(new[] { "reportedCountMismatch" });
+                diagnostics = diagnostics with {
+                    Warnings = matches ? [] : diagnostics.Warnings.Append("inventoryVerificationMismatch").ToArray(),
+                    Verification = new(matches, verification.Diagnostics.Pages, verification.Components.Length, verification.Diagnostics.ReportedTotals),
+                    Notices = matches ? ["apiCountVerified"] : []
+                };
+            }
+            catch (LensException ex) when (ex.Code != "apiAuth")
+            {
+                diagnostics = diagnostics with { Warnings = diagnostics.Warnings.Append("inventoryVerificationFailed").ToArray(),
+                    Verification = new(false, 0, 0, [], ex.Code) };
+            }
+        }
+        inventoryReport?.Invoke(diagnostics);
+        var components = inventory.Components;
+        var endpoint = new Uri(workspace.Info.Endpoint);
 
         var hydrated = new Component[components.Length];
         var completed = 0;

@@ -89,7 +89,7 @@ public static partial class DuplicateDetector
                 x.Value.A.OrderBy(o => o.Name, StringComparer.Ordinal).ToArray(), x.Value.B.OrderBy(o => o.Name, StringComparer.Ordinal).ToArray())).ToArray();
         var failures = issues.Count(x => x.Reason == "detailFailed");
         var coverage = inventories ?? [];
-        return new("1.0.1", demo, failures > 0 || coverage.Any(i => i.Warnings.Count > 0) ? "partial" : "complete", DateTimeOffset.UtcNow, ignoreCase, a, b,
+        return new(LensHost.Version, demo, failures > 0 || coverage.Any(i => i.Warnings.Count > 0) ? "partial" : "complete", DateTimeOffset.UtcNow, ignoreCase, a, b,
             new(componentsA.Count, componentsB.Count, comparedA, comparedB,
                 groups.Count(x => x.Scope == "cross"), groups.Count(x => x.A.Count > 1), groups.Count(x => x.B.Count > 1),
                 issues.Count(x => x.Reason == "missingIdentity"), failures), groups, issues, coverage);

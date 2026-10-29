@@ -4,11 +4,11 @@ A portable, read-only Windows app for finding duplicate components across two Al
 
 [Français](docs/README.fr.md) · [Español](docs/README.es.md)
 
-![French interface displaying fictitious demo results](docs/screenshots/demo-fr.png)
+![French interface restoring saved test data with verified inventory diagnostics](docs/screenshots/local-persistence-fr.png)
 
 ## Run without installing anything
 
-Download `ComponentLens-1.0.1-win-x64.zip` from this repository's Releases, extract it, then double-click **ComponentLens.exe**. The executable includes its .NET runtime and opens your default browser. Keep its console window open while using the app. Choose **Quit** or close the console to stop it.
+Download `ComponentLens-1.1.0-win-x64.zip` from this repository's Releases, extract it, then double-click **ComponentLens.exe**. The executable includes its .NET runtime and opens your default browser. Keep its console window open while using the app. Choose **Quit** or close the console to stop it.
 
 Requires Windows 10/11 x64, a modern browser, network access to Altium 365, and an API access token with library/component read access for each workspace. No Altium Designer, Node.js or .NET installation is needed. The embedded runtime may unpack native files into the user's temporary directory on first launch. The release is unsigned.
 
@@ -17,6 +17,8 @@ Requires Windows 10/11 x64, a modern browser, network access to Altium 365, and 
 3. Select **Find duplicates**. The app reads all pages and each component's parameters.
 4. Filter by category, search by manufacturer/MPN/component, and expand a result to inspect every occurrence and its evidence.
 5. Export the filtered groups to CSV or JSON. Select the missing-data card to review and export data issues.
+
+All matching groups appear on one page, with no Next/Previous buttons. Connections and the latest completed comparison are saved automatically. Subsequent launches restore them, including the original comparison date, without contacting Altium. Select **Find duplicates** when you want fresh data. Upgrading from 1.0.x requires entering the two tokens once because those releases did not save them.
 
 **Explore demo** works without Altium tokens and uses clearly marked fictitious data. It does not contact Altium.
 
@@ -37,15 +39,21 @@ The scan reads the entire visible library. Category and text filters apply after
 
 Components without a usable manufacturer/MPN pair are explicitly listed as data issues and excluded from comparison. Empty values and placeholders such as `N/A`, `Unknown` or `-` are not identities. A parameter-read failure marks the entire report **PARTIAL**; known Part Choices are retained but matches may be missing. Network, authentication or broken-cursor failures stop the scan rather than produce an empty success report. Rate limiting and transient HTTP 502/503/504 errors are retried up to four times, with cancellation support.
 
-Pagination follows `hasNextPage` / `endCursor` until the API ends the connection, rather than treating `totalCount` as a hard limit. Overlapping rows are deduplicated by component ID before reading parameters and comparing components. If the distinct count matches a stable API total, harmless repeated rows are reported without inventing duplicates. A different/changing total or conflicting repeated-component data produces a **PARTIAL** report with all retrieved components. The **Inventory diagnostics** panel shows rows, distinct components, repeated rows, pages and advertised totals; JSON exports retain this evidence. Missing/repeated cursors or intermediate pages that add no components still stop the scan with a specific error.
+API pagination follows `hasNextPage` / `endCursor` until the connection ends, rather than treating `totalCount` as a hard limit. Overlapping rows are deduplicated by component ID before reading parameters and comparing components. If the distinct count exceeds a single stable API total, the app performs a second independent, complete cursor traversal. Only when both reads return identical IDs and component metadata, with the same counter, does the discrepancy become an **informational notice** instead of a false partial warning. This specifically handles 1,323 distinct components returned against a total of 1,321 without dropping two components.
+
+A smaller-than-announced inventory, changing totals, conflicting repeated rows, a verification mismatch/failure or unread parameters still produces an explicitly **PARTIAL** report. It has one persistent warning banner, with reasons beneath it. Missing/repeated cursors or intermediate pages without progress still stop the scan. Diagnostics and JSON exports preserve counts, verification outcomes, notices and warnings. Independent reads do not provide an atomic snapshot or visibility beyond the API token's rights.
 
 Results cover only data visible to each token. The API does not provide an atomic snapshot across both workspaces: avoid library edits during a scan. There is no deletion, merging or modification of Altium data.
 
 ## Credentials and local operation
 
-Tokens stay in process memory for the current session. A connected token is removed from the form and is never put in browser storage, reports, URLs or application logs. Only display names, workspace URLs and the language preference persist in browser local storage; the local session key uses session storage. Close the executable to discard its credentials.
+The URL, token and display name for each workspace, the selected language and the latest completed comparison are saved to **`%LOCALAPPDATA%\ComponentLens\state.dat`**. The complete file is encrypted using Windows DPAPI for the current user, including the component data. This is outside the executable folder, so replacing the portable ZIP does not erase your saved state. The folder has an encrypted backup (`state.dat.bak`) and a per-instance lock. Only one process can use a data folder at once.
 
-Refreshing the browser restores the connected workspace metadata, completed results or the running scan from that same local process; tokens are never returned to the browser.
+Writes use a temporary encrypted file and atomic replacement. There is no plaintext credential fallback. A corrupt or undecryptable file is preserved and reported. The Windows account that protected the file is needed to recover it; copying the ZIP alone does not migrate saved state. See [Microsoft's DPAPI documentation](https://learn.microsoft.com/en-us/windows/win32/SecCrypto/example-c-program-using-cryptprotectdata).
+
+Tokens are removed from the form after connection, never returned through the local API, and excluded from reports, URLs, browser storage and application logs. An empty token field can reuse a saved credential only for its original workspace URL. Enter a new token if the token expires or the URL changes. **Local data → Forget saved connections and comparison** clears both the state and its encrypted backup.
+
+Restoring saved metadata/results does not validate token expiry or refresh library data: the dated restored-comparison banner makes this explicit. An unsuccessful refresh keeps the previous dated comparison available. Changing a workspace URL invalidates the old comparison; refreshing a token for the same URL retains it. Partial reports remain partial when saved/reloaded. Demo data is never persisted as a real comparison.
 
 The backend listens only on `127.0.0.1` on a random port. API requests require a random per-process session key. A host/origin check and a Content Security Policy protect the local interface. HTTPS Altium hosts ending in `.altium.com` or `.altium365.com` are supported; redirects are not followed when sending API tokens. TLS uses the operating system's certificate validation. No telemetry or external UI assets are loaded. Optional API documentation links open the official Altium site.
 
@@ -59,13 +67,15 @@ Development requires the .NET 10 SDK and Node.js 22 or later for frontend tests.
 ./scripts/test.ps1
 dotnet run --project src/ComponentLens
 ./scripts/publish.ps1
+./scripts/smoke.ps1
+./scripts/smoke-persistence.ps1
 ```
 
-The portable executable and ZIP are written to `dist/win-x64/` and `dist/`. The adjacent `.sha256` file validates the archive. CLI options: `--headless` suppresses browser launch, `--port 4177` chooses a fixed loopback port, `--help` shows usage. The console displays a complete session URL; use it when reopening a tab or testing with another browser.
+The portable executable and ZIP are written to `dist/win-x64/` and `dist/`. The adjacent `.sha256` file validates the archive. CLI options: `--headless` suppresses browser launch, `--port 4177` chooses a fixed loopback port, `--data-dir PATH` selects an isolated encrypted data directory and `--no-persistence` uses memory only. The console displays a complete session URL; use it when reopening a tab or testing with another browser. Regression scripts isolate their data under `.artifacts/` and never use your normal saved connections.
 
-Tests exercise identity grouping, normalization, indexed fields, evidence deduplication, category filters, complete cursor pagination, authentication/GraphQL errors, partial detail reads, throttling, cancellation, CSV escaping and translation coverage. `scripts/smoke.ps1` additionally launches the built portable executable and checks its real HTTP interface. See [validation notes](docs/VALIDATION.md) for what has and has not been exercised.
+The regression suite includes 46 backend tests, 6 frontend tests, 17 portable HTTP checks and 29 cross-process persistence checks. It covers identity grouping, pagination/independent inventory verification, DPAPI round-trips/tampering, atomic write failure, restart without API calls, expired/reused/replaced credentials, cache invalidation, corrupt storage, partial-report preservation, forget, CSV escaping and translation parity. See [validation notes](docs/VALIDATION.md) for browser checks and the remaining real-workspace validation boundary.
 
-GitHub Actions runs tests on pushes/PRs. A `v*` tag tests and builds the portable package, then creates a GitHub release with the ZIP and SHA-256 checksum. The workflow needs the repository's Actions feature enabled.
+GitHub Actions runs tests on pushes/PRs. A `v*` tag runs the complete regression suite, builds the portable package, checks the binary and cross-process persistence, then creates a release with the ZIP and SHA-256 checksum. Failed checks prevent release publication.
 
 ## API references
 

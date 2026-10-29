@@ -29,6 +29,9 @@ jobs:
       - name: Smoke-test portable binary
         shell: pwsh
         run: ./scripts/smoke.ps1
+      - name: Persistence and restart integration regression
+        shell: pwsh
+        run: ./scripts/smoke-persistence.ps1
       - name: Publish release
         shell: pwsh
         env:

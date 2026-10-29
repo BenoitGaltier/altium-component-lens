@@ -7,7 +7,7 @@ public sealed record Component(
     string Id, string Name, string Revision, string Description, Category? Category,
     string Folder, IReadOnlyList<Parameter> Parameters, IReadOnlyList<Parameter> ItemParameters,
     IReadOnlyList<PartChoice> PartChoices, string? DetailError = null);
-public sealed record WorkspaceInfo(string Slot, string Name, string Endpoint, int ComponentCount, IReadOnlyList<Category> Categories);
+public sealed record WorkspaceInfo(string Slot, string Name, string Endpoint, int ComponentCount, IReadOnlyList<Category> Categories, bool Restored = false);
 public sealed record WorkspaceConnection(WorkspaceInfo Info, string Token);
 public sealed record ConnectRequest(string Name, string Endpoint, string Token);
 public sealed record ScanRequest(bool IgnoreCase = true);
@@ -21,8 +21,11 @@ public sealed record QualityIssue(string Workspace, string WorkspaceName, string
     Category? Category, string Reason);
 public sealed record ScanSummary(int ComponentsA, int ComponentsB, int ComparedA, int ComparedB,
     int CrossGroups, int InternalGroupsA, int InternalGroupsB, int MissingIdentity, int DetailFailures);
+public sealed record InventoryVerification(bool Matches, int Pages, int DistinctComponents,
+    IReadOnlyList<int> ReportedTotals, string? ErrorCode = null);
 public sealed record InventoryDiagnostics(string Workspace, string WorkspaceName, int Pages, int RowsRead,
-    int DistinctComponents, int RepeatedRows, IReadOnlyList<int> ReportedTotals, IReadOnlyList<string> Warnings);
+    int DistinctComponents, int RepeatedRows, IReadOnlyList<int> ReportedTotals, IReadOnlyList<string> Warnings,
+    InventoryVerification? Verification = null, IReadOnlyList<string>? Notices = null);
 public sealed record ScanResult(string Version, bool Demo, string Completeness, DateTimeOffset CreatedAt,
     bool IgnoreCase, WorkspaceInfo A, WorkspaceInfo B, ScanSummary Summary,
     IReadOnlyList<DuplicateGroup> Groups, IReadOnlyList<QualityIssue> Issues,
